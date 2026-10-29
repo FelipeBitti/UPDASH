@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Regra aprendida: dado o "formato" do Texto breve, em que posição está a sigla e o código.
+// indiceSigla e indiceCodigo nulos = padrão marcado como "ignorar".
+model RegraExtracao {
+  id           String   @id @default(cuid())
+  padrao       String   @unique
+  indiceSigla  Int?
+  indiceCodigo Int?
+  exemplo      String
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+}
