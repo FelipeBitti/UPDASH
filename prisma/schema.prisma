@@ -19,3 +19,22 @@ model RegraExtracao {
   criadoEm     DateTime @default(now())
   atualizadoEm DateTime @updatedAt
 }
+
+// Cadastro de siglas: uma linha por par (sigla, CD pai). Os pares novos entram sozinhos
+// quando uma planilha de produção é carregada; os demais campos são preenchidos à mão.
+model Sigla {
+  id           String   @id @default(cuid())
+  sigla        String
+  cdPai        String
+  estrutura    String   @default("")
+  kva          String   @default("")
+  circuito     String   @default("")
+  tipo         String   @default("")
+  observacao   String   @default("")
+  origem       String   @default("auto")
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([sigla, cdPai])
+  @@index([estrutura])
+}

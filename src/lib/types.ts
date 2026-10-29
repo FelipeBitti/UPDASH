@@ -16,3 +16,15 @@ export type LinhaX = Linha & {
   codigo: string; // "—" quando não houver
   origem: Origem;
 };
+
+export type SiglaRow = {
+  id: string;
+  sigla: string;
+  cdPai: string;
+  estrutura: string;
+  kva: string;
+  circuito: string;
+  tipo: string;
+  observacao: string;
+  origem: string;
+};

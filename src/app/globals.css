@@ -40,3 +40,8 @@ code, .exemplo { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; } 
 .cartao-rodape { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; } .acoes { display: flex; gap: 8px; }
 .padrao { color: #9ca3af; } .vazio { color: var(--mut); text-align: center; padding: 40px 0; }
 @media (max-width: 560px) { .grade { grid-template-columns: 1fr; } .topo { flex-direction: column; align-items: stretch; } }
+.tabela-wrap.tall { max-height: 640px; background: #fff; border: 1px solid var(--bd); border-radius: 12px; }
+.cel { border: 1px solid var(--bd); border-radius: 6px; padding: 4px 8px; font: inherit; background: #fff; min-width: 96px; max-width: 150px; }
+.cel.larga { min-width: 220px; max-width: none; } .cel:disabled { background: #f3f4f6; color: #9ca3af; }
+.paginacao { display: flex; gap: 12px; align-items: center; justify-content: center; margin: 12px 0; }
+.estado { min-width: 64px; }

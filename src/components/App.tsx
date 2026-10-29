@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { criarExtrator, padraoParaRegra, type Regra } from "@/lib/extract";
 import { lerPlanilha } from "@/lib/parse";
-import type { Linha, LinhaX } from "@/lib/types";
+import type { Linha, LinhaX, SiglaRow } from "@/lib/types";
+import type { SiglaImport } from "@/lib/parseSiglas";
 import Dashboard from "./Dashboard";
 import Pendencias, { type Grupo } from "./Pendencias";
 import Regras from "./Regras";
+import SiglasTab from "./SiglasTab";
 
-type Aba = "dash" | "pend" | "regras";
+type Aba = "dash" | "pend" | "regras" | "siglas";
 
 export default function App() {
   const [linhas, setLinhas] = useState<Linha[]>([]);
@@ -20,6 +22,9 @@ export default function App() {
   const [erroDb, setErroDb] = useState("");
   const [arrastando, setArrastando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [siglas, setSiglas] = useState<SiglaRow[]>([]);
+  const [siglasOk, setSiglasOk] = useState(false);
+  const conhecidas = useRef<Set<string>>(new Set());
 
   const carregarRegras = useCallback(async () => {
     try {
@@ -36,6 +41,24 @@ export default function App() {
   useEffect(() => {
     carregarRegras();
   }, [carregarRegras]);
+
+  const carregarSiglas = useCallback(async () => {
+    try {
+      const r = await fetch("/api/siglas");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      setSiglas(j.siglas);
+      conhecidas.current = new Set((j.siglas as SiglaRow[]).map((x) => `${x.sigla}|${x.cdPai}`));
+      setSiglasOk(true);
+    } catch (e) {
+      setSiglasOk(false);
+      setErroDb((prev) => prev || (e instanceof Error ? e.message : "Erro ao ler o cadastro de siglas."));
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarSiglas();
+  }, [carregarSiglas]);
 
   // Aplica extração (regras aprendidas + automática) e agrupa as pendências por padrão
   const { dados, grupos } = useMemo(() => {
@@ -56,6 +79,43 @@ export default function App() {
     });
     return { dados, grupos: [...mapa.values()].sort((a, b) => b.linhas - a.linhas) };
   }, [linhas, regras]);
+
+  // Todo par (sigla, CD pai) novo vindo da planilha de produção entra no cadastro de siglas
+  useEffect(() => {
+    if (!siglasOk || dados.length === 0) return;
+    const novos = new Map<string, { sigla: string; cdPai: string }>();
+    for (const d of dados) {
+      if (d.origem === "pendente" || d.origem === "ignorado") continue;
+      if (d.sigla === "(sem sigla)" || d.codigo === "—") continue;
+      const k = `${d.sigla}|${d.codigo}`;
+      if (!conhecidas.current.has(k) && !novos.has(k)) novos.set(k, { sigla: d.sigla, cdPai: d.codigo });
+    }
+    if (novos.size === 0) return;
+    const pares = [...novos.values()];
+    for (const k of novos.keys()) conhecidas.current.add(k); // evita reenvio em loop
+    fetch("/api/siglas/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pares }) })
+      .then((r) => (r.ok ? carregarSiglas() : Promise.reject()))
+      .catch(() => { for (const k of novos.keys()) conhecidas.current.delete(k); });
+  }, [dados, siglasOk, carregarSiglas]);
+
+  async function salvarSigla(id: string, patch: Partial<Record<"estrutura" | "kva" | "circuito" | "tipo" | "observacao", string>>) {
+    const r = await fetch(`/api/siglas/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error ?? "Erro ao salvar.");
+    setSiglas((prev) => prev.map((x) => (x.id === id ? j.sigla : x)));
+  }
+
+  async function importarSiglas(rows: SiglaImport[]) {
+    const r = await fetch("/api/siglas/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error ?? "Erro ao importar.");
+    await carregarSiglas();
+    return j as { criadas: number; atualizadas: number };
+  }
 
   async function abrir(file: File | undefined | null) {
     if (!file) return;
@@ -118,6 +178,10 @@ export default function App() {
         <button className={aba === "pend" ? "on" : ""} onClick={() => setAba("pend")}>
           Pendências{grupos.length > 0 && <span className="badge">{grupos.length}</span>}
         </button>
+        <button className={aba === "siglas" ? "on" : ""} onClick={() => setAba("siglas")}>
+          Siglas e CD pai
+          {siglas.some((x) => !x.estrutura) && <span className="badge">{siglas.filter((x) => !x.estrutura).length}</span>}
+        </button>
         <button className={aba === "regras" ? "on" : ""} onClick={() => setAba("regras")}>
           Regras aprendidas<span className="badge neutro">{regras.length}</span>
         </button>
@@ -148,6 +212,7 @@ export default function App() {
         ))}
 
       {aba === "pend" && <Pendencias grupos={grupos} onSalvar={salvarRegra} temDados={linhas.length > 0} />}
+      {aba === "siglas" && <SiglasTab siglas={siglas} onSalvar={salvarSigla} onImportar={importarSiglas} />}
       {aba === "regras" && <Regras regras={regras} onExcluir={excluirRegra} />}
     </div>
   );

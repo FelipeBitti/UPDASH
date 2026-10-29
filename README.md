@@ -26,3 +26,9 @@ npm run dev
 ## Colunas esperadas na planilha
 Ordem de Produção, Texto breve Material, Txt.breve operacao, Centro de trabalho, Qtd.boa total,
 Peso Qtd.boa total confirmada, Peso Ordem, Data Entrada.
+
+## Cadastro de siglas (aba "Siglas e CD pai")
+- Todo par **sigla + CD pai** novo que aparece numa planilha de produção é cadastrado sozinho.
+- Preencha Estrutura (LT, SE, POSTE, TELECOM), KVA e Observação; Circuito (CS/CD) e Tipo (Estaiada/Suspensão/Ancoragem) só para LT.
+- "Importar planilha de siglas" carrega um Excel no formato `SIGLA | CD PAI | Estrutura | KVA | Circuito | TIPO | Observação`
+  (cria as novas e só completa campos vazios das existentes). "Exportar Excel" baixa o cadastro no mesmo formato.
