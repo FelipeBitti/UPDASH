@@ -38,3 +38,25 @@ model Sigla {
   @@unique([sigla, cdPai])
   @@index([estrutura])
 }
+
+// Planilha Mestre: guarda só o que é digitado à mão (tempo, peso médio, rótulo, linhas manuais).
+// As linhas "automáticas" são derivadas do cadastro de siglas na tela, então nunca duplicam.
+model MestreLinha {
+  id           String   @id @default(cuid())
+  produto      String
+  tensao       String   @default("")
+  construtivo  String   @default("")
+  rotulo       String   @default("")
+  tempoH       Float?
+  pesoMedio    Float?
+  manual       Boolean  @default(false)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@unique([produto, tensao, construtivo])
+}
+
+model MestreConfig {
+  chave String @id
+  valor String
+}

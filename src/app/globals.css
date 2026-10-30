@@ -45,3 +45,7 @@ code, .exemplo { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; } 
 .cel.larga { min-width: 220px; max-width: none; } .cel:disabled { background: #f3f4f6; color: #9ca3af; }
 .paginacao { display: flex; gap: 12px; align-items: center; justify-content: center; margin: 12px 0; }
 .estado { min-width: 64px; }
+.grade.tres { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+table.mestre td { padding: 5px 10px; } table.mestre tr.zebra td { background: #f3f4f6; } table.mestre tr.topo-grupo td { border-top: 2px solid #9ca3af; }
+table.mestre td.ref { background: #f3d1f4 !important; font-weight: 600; }
+.cel.num { text-align: right; min-width: 80px; max-width: 110px; }

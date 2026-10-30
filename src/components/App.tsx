@@ -5,18 +5,21 @@ import { criarExtrator, padraoParaRegra, type Regra } from "@/lib/extract";
 import { lerPlanilha } from "@/lib/parse";
 import type { Linha, LinhaX, SiglaRow } from "@/lib/types";
 import type { SiglaImport } from "@/lib/parseSiglas";
+import { chaveDe, montarMestre, type MestreSalva } from "@/lib/mestre";
 import Dashboard from "./Dashboard";
+import Mestre from "./Mestre";
+import Produtividade from "./Produtividade";
 import Pendencias, { type Grupo } from "./Pendencias";
 import Regras from "./Regras";
 import SiglasTab from "./SiglasTab";
 
-type Aba = "dash" | "pend" | "regras" | "siglas";
+type Aba = "prod" | "dash" | "mestre" | "pend" | "regras" | "siglas";
 
 export default function App() {
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [regras, setRegras] = useState<Regra[]>([]);
   const [arquivo, setArquivo] = useState("");
-  const [aba, setAba] = useState<Aba>("dash");
+  const [aba, setAba] = useState<Aba>("prod");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [erroDb, setErroDb] = useState("");
@@ -25,6 +28,8 @@ export default function App() {
   const [siglas, setSiglas] = useState<SiglaRow[]>([]);
   const [siglasOk, setSiglasOk] = useState(false);
   const conhecidas = useRef<Set<string>>(new Set());
+  const [mestreSalvas, setMestreSalvas] = useState<MestreSalva[]>([]);
+  const [refChave, setRefChave] = useState("auto");
 
   const carregarRegras = useCallback(async () => {
     try {
@@ -79,6 +84,65 @@ export default function App() {
     });
     return { dados, grupos: [...mapa.values()].sort((a, b) => b.linhas - a.linhas) };
   }, [linhas, regras]);
+
+  const carregarMestre = useCallback(async () => {
+    try {
+      const r = await fetch("/api/mestre");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error);
+      setMestreSalvas(j.linhas);
+      setRefChave(j.config?.refUP || "auto");
+    } catch (e) {
+      setErroDb((prev) => prev || (e instanceof Error ? e.message : "Erro ao ler a Planilha Mestre."));
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarMestre();
+  }, [carregarMestre]);
+
+  // A Planilha Mestre é derivada do cadastro de siglas + o que foi digitado à mão: novas combinações entram sozinhas
+  const mestre = useMemo(() => montarMestre(siglas, mestreSalvas, refChave), [siglas, mestreSalvas, refChave]);
+
+  const guardarMestre = (x: MestreSalva) =>
+    setMestreSalvas((prev) => [...prev.filter((p) => chaveDe(p) !== chaveDe(x)), x]);
+
+  async function salvarMestre(
+    l: { produto: string; tensao: string; construtivo: string },
+    patch: { rotulo?: string; tempoH?: number | null; pesoMedio?: number | null },
+    manual = false,
+  ) {
+    const r = await fetch("/api/mestre", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ produto: l.produto, tensao: l.tensao, construtivo: l.construtivo, manual, ...patch }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error ?? "Erro ao salvar.");
+    guardarMestre(j.linha);
+  }
+
+  async function excluirMestre(id: string) {
+    const r = await fetch(`/api/mestre?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error ?? "Erro ao excluir.");
+    }
+    setMestreSalvas((prev) => prev.filter((x) => x.id !== id));
+  }
+
+  async function trocarRef(chave: string) {
+    const r = await fetch("/api/mestre/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chave: "refUP", valor: chave }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(j.error ?? "Erro ao salvar a referência.");
+    }
+    setRefChave(chave);
+  }
 
   // Todo par (sigla, CD pai) novo vindo da planilha de produção entra no cadastro de siglas
   useEffect(() => {
@@ -157,6 +221,19 @@ export default function App() {
     setRegras((prev) => prev.filter((x) => x.id !== id));
   }
 
+  const zona = (
+    <div
+      className={"drop" + (arrastando ? " on" : "")}
+      onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
+      onDragLeave={() => setArrastando(false)}
+      onDrop={(e) => { e.preventDefault(); setArrastando(false); abrir(e.dataTransfer.files?.[0]); }}
+      onClick={() => inputRef.current?.click()}
+    >
+      <strong>Arraste a planilha aqui</strong>
+      <span>ou clique para escolher um arquivo .xlsx</span>
+    </div>
+  );
+
   return (
     <div className="wrap">
       <header className="topo">
@@ -174,7 +251,12 @@ export default function App() {
       {erro && <div className="aviso erro">{erro}</div>}
 
       <nav className="abas">
+        <button className={aba === "prod" ? "on" : ""} onClick={() => setAba("prod")}>Produtividade (UP)</button>
         <button className={aba === "dash" ? "on" : ""} onClick={() => setAba("dash")}>Dashboard</button>
+        <button className={aba === "mestre" ? "on" : ""} onClick={() => setAba("mestre")}>
+          Planilha Mestre
+          {mestre.linhas.some((l) => l.tempoH === null || l.pesoMedio === null) && <span className="badge">{mestre.linhas.filter((l) => l.tempoH === null || l.pesoMedio === null).length}</span>}
+        </button>
         <button className={aba === "pend" ? "on" : ""} onClick={() => setAba("pend")}>
           Pendências{grupos.length > 0 && <span className="badge">{grupos.length}</span>}
         </button>
@@ -187,18 +269,36 @@ export default function App() {
         </button>
       </nav>
 
+      {aba === "prod" &&
+        (linhas.length === 0 ? (
+          zona
+        ) : (
+          <Produtividade
+            dados={dados}
+            siglas={siglas}
+            mestre={mestre.linhas}
+            refDescricao={mestre.refDescricao}
+            refTempo={mestre.refTempo}
+            onIrMestre={() => setAba("mestre")}
+          />
+        ))}
+
+      {aba === "mestre" && (
+        <Mestre
+          linhas={mestre.linhas}
+          refTempo={mestre.refTempo}
+          refDescricao={mestre.refDescricao}
+          refChave={refChave}
+          onRef={trocarRef}
+          onSalvar={(l, patch) => salvarMestre(l, patch)}
+          onAdicionar={(l) => salvarMestre(l, { rotulo: l.rotulo }, true)}
+          onExcluir={excluirMestre}
+        />
+      )}
+
       {aba === "dash" &&
         (linhas.length === 0 ? (
-          <div
-            className={"drop" + (arrastando ? " on" : "")}
-            onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
-            onDragLeave={() => setArrastando(false)}
-            onDrop={(e) => { e.preventDefault(); setArrastando(false); abrir(e.dataTransfer.files?.[0]); }}
-            onClick={() => inputRef.current?.click()}
-          >
-            <strong>Arraste a planilha aqui</strong>
-            <span>ou clique para escolher um arquivo .xlsx</span>
-          </div>
+          zona
         ) : (
           <>
             {grupos.length > 0 && (

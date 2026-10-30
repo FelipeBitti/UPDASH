@@ -32,3 +32,9 @@ Peso Qtd.boa total confirmada, Peso Ordem, Data Entrada.
 - Preencha Estrutura (LT, SE, POSTE, TELECOM), KVA e Observação; Circuito (CS/CD) e Tipo (Estaiada/Suspensão/Ancoragem) só para LT.
 - "Importar planilha de siglas" carrega um Excel no formato `SIGLA | CD PAI | Estrutura | KVA | Circuito | TIPO | Observação`
   (cria as novas e só completa campos vazios das existentes). "Exportar Excel" baixa o cadastro no mesmo formato.
+
+## Planilha Mestre e Produtividade (UP)
+- **Planilha Mestre** (aba): linhas por Produto + Tensão + Tipo construtivo (LT: Estaiada, Suspensão, Ancoragem), geradas a partir do cadastro de siglas.
+  Combinações novas aparecem sozinhas, sem duplicar. Você digita o *Tempo de processo (h)* e as *Toneladas/estrutura*.
+- Fórmulas: `UP = tempo da estrutura ÷ tempo da referência (LT 500kV = 1 UP)`, `UP/ton = UP ÷ ton`, `ton/UP = ton ÷ UP`.
+- **Produtividade (UP)** (tela inicial): toneladas produzidas ÷ peso médio = estruturas; estruturas × UP = UP consumidas; filtros por produto, sigla, tensão e tipo.
