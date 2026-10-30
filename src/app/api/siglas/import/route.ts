@@ -41,6 +41,7 @@ export async function POST(req: Request) {
       const patch: Partial<SiglaCampos> = {};
       for (const c of campos) if (!e[c] && it[c]) patch[c] = it[c];
       const final = aplicarRegraLT({ ...e, ...patch });
+      if (final.kva !== (patch.kva ?? e.kva)) delete patch.kva;
       if (final.circuito !== (patch.circuito ?? e.circuito)) delete patch.circuito;
       if (final.tipo !== (patch.tipo ?? e.tipo)) delete patch.tipo;
       if (Object.keys(patch).length) updates.push(prisma.sigla.update({ where: { id: e.id }, data: patch }));

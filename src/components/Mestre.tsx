@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CONSTRUTIVOS, type MestreLinha } from "@/lib/mestre";
+import { CONSTRUTIVOS, CONSTRUTIVOS_SOLAR, type MestreLinha } from "@/lib/mestre";
 
 type Patch = { rotulo?: string; tempoH?: number | null; pesoMedio?: number | null };
 
@@ -81,7 +81,7 @@ export default function Mestre({ linhas, refTempo, refDescricao, refChave, onRef
       {erro && <div className="aviso erro">{erro}</div>}
 
       {linhas.length === 0 ? (
-        <p className="vazio">A Planilha Mestre ainda está vazia. Classifique as siglas na aba “Siglas e CD pai” (Estrutura, KVA e, para LT, o Tipo) ou adicione uma linha manual abaixo.</p>
+        <p className="vazio">A Planilha Mestre ainda está vazia. Classifique as siglas na aba “Siglas e CD pai” (Estrutura, KVA e, para LT e Solar, o Tipo) ou adicione uma linha manual abaixo.</p>
       ) : (
         <div className="tabela-wrap tall">
           <table className="mestre">
@@ -137,7 +137,7 @@ export default function Mestre({ linhas, refTempo, refDescricao, refChave, onRef
           <label>Tipo construtivo
             <select value={novo.construtivo} onChange={(e) => setNovo({ ...novo, construtivo: e.target.value })}>
               <option value="">—</option>
-              {CONSTRUTIVOS.map((c) => <option key={c}>{c}</option>)}
+              {[...CONSTRUTIVOS, ...CONSTRUTIVOS_SOLAR].map((c) => <option key={c}>{c}</option>)}
             </select>
           </label>
           <label>Rótulo do tipo

@@ -1,6 +1,13 @@
-export const ESTRUTURAS = ["LT", "SE", "POSTE", "TELECOM"];
+export const ESTRUTURAS = ["LT", "SE", "POSTE", "TELECOM", "SOLAR", "OUTROS"];
 export const CIRCUITOS = ["CS", "CD"];
 export const TIPOS = ["Estaiada", "Suspensão", "Ancoragem"];
+export const TIPOS_SOLAR = ["Tracker", "Fixo"];
+
+// Estruturas que aceitam cada campo
+export const temKva = (e: string) => e !== "TELECOM" && e !== "SOLAR";
+export const temCircuito = (e: string) => e === "LT";
+export const temTipo = (e: string) => e === "LT" || e === "SOLAR";
+export const tiposDe = (e: string) => (e === "SOLAR" ? TIPOS_SOLAR : e === "LT" ? TIPOS : []);
 export const KVAS = ["13,8KV", "34,5KV", "69KV", "138KV", "500KV", "525KV", "800KV"];
 
 export type SiglaCampos = {
@@ -19,18 +26,28 @@ export const normKva = (v: unknown) => limpar(v).toUpperCase().replace(/\s+/g, "
 export const normCircuito = (v: unknown) => limpar(v).toUpperCase();
 export function normTipo(v: unknown) {
   const t = limpar(v);
-  return TIPOS.find((x) => semAcento(x) === semAcento(t)) ?? t;
+  return [...TIPOS, ...TIPOS_SOLAR].find((x) => semAcento(x) === semAcento(t)) ?? t;
 }
 
-// Só estrutura LT tem circuito e tipo
+// LT: KVA, circuito e tipo (Estaiada/Suspensão/Ancoragem).
+// SOLAR: só tipo (Tracker/Fixo), sem KVA nem circuito.
+// Demais estruturas: sem circuito nem tipo (TELECOM também sem KVA).
 export function aplicarRegraLT<T extends SiglaCampos>(c: T): T {
-  return c.estrutura === "LT" ? c : { ...c, circuito: "", tipo: "" };
+  const kva = temKva(c.estrutura) ? c.kva : "";
+  const circuito = temCircuito(c.estrutura) ? c.circuito : "";
+  // tipo de outra estrutura não vale aqui (ex.: "Estaiada" em SOLAR)
+  const tipo =
+    c.estrutura === "SOLAR" ? (TIPOS_SOLAR.includes(c.tipo) ? c.tipo : "")
+    : c.estrutura === "LT" ? (TIPOS_SOLAR.includes(c.tipo) ? "" : c.tipo)
+    : "";
+  return { ...c, kva, circuito, tipo };
 }
 
 export type Status = "pendente" | "incompleto" | "completo";
 export function statusDe(c: SiglaCampos): Status {
   if (!c.estrutura) return "pendente";
-  if (c.estrutura !== "TELECOM" && !c.kva) return "incompleto";
+  if (temKva(c.estrutura) && c.estrutura !== "OUTROS" && !c.kva) return "incompleto";
   if (c.estrutura === "LT" && (!c.circuito || !c.tipo)) return "incompleto";
+  if (c.estrutura === "SOLAR" && !c.tipo) return "incompleto";
   return "completo";
 }

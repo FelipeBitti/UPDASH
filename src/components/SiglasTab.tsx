@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SiglaRow } from "@/lib/types";
 import { lerSiglas, type SiglaImport } from "@/lib/parseSiglas";
-import { CIRCUITOS, ESTRUTURAS, KVAS, TIPOS, statusDe } from "@/lib/siglas";
+import { CIRCUITOS, ESTRUTURAS, KVAS, statusDe, temCircuito, temKva, temTipo, tiposDe } from "@/lib/siglas";
 
 type Campos = "estrutura" | "kva" | "circuito" | "tipo" | "observacao";
 
@@ -83,7 +83,7 @@ export default function SiglasTab({ siglas, onSalvar, onImportar }: Props) {
     <section>
       <p className="ajuda">
         Cada par <b>sigla + CD pai</b> novo que aparece numa planilha de produção é cadastrado aqui automaticamente. Preencha Estrutura, KVA e
-        Observação; <b>Circuito</b> e <b>Tipo</b> só valem para estruturas <b>LT</b>. Os dados salvam ao escolher/sair do campo.
+        Observação; <b>Circuito</b> só vale para <b>LT</b>; <b>Tipo</b> vale para <b>LT</b> (Estaiada, Suspensão, Ancoragem) e <b>SOLAR</b> (Tracker, Fixo), que não tem KVA nem circuito. Os dados salvam ao escolher/sair do campo.
       </p>
 
       <div className="filtros">
@@ -148,7 +148,6 @@ function Linha({ s, onSalvar }: { s: SiglaRow; onSalvar: Props["onSalvar"] }) {
     }
   }
 
-  const lt = s.estrutura === "LT";
   const opc = (base: string[], atual: string) => (atual && !base.includes(atual) ? [...base, atual] : base);
 
   return (
@@ -162,19 +161,19 @@ function Linha({ s, onSalvar }: { s: SiglaRow; onSalvar: Props["onSalvar"] }) {
         </select>
       </td>
       <td>
-        <input className="cel" list="kvas" value={kva} placeholder="ex.: 69KV" disabled={s.estrutura === "TELECOM"}
+        <input className="cel" list="kvas" value={kva} placeholder="ex.: 69KV" disabled={!temKva(s.estrutura)}
           onChange={(e) => setKva(e.target.value)} onBlur={() => kva !== s.kva && salvar({ kva })} />
       </td>
       <td>
-        <select className="cel" value={s.circuito} disabled={!lt} onChange={(e) => salvar({ circuito: e.target.value })}>
+        <select className="cel" value={s.circuito} disabled={!temCircuito(s.estrutura)} onChange={(e) => salvar({ circuito: e.target.value })}>
           <option value="">—</option>
           {opc(CIRCUITOS, s.circuito).map((o) => <option key={o}>{o}</option>)}
         </select>
       </td>
       <td>
-        <select className="cel" value={s.tipo} disabled={!lt} onChange={(e) => salvar({ tipo: e.target.value })}>
+        <select className="cel" value={s.tipo} disabled={!temTipo(s.estrutura)} onChange={(e) => salvar({ tipo: e.target.value })}>
           <option value="">—</option>
-          {opc(TIPOS, s.tipo).map((o) => <option key={o}>{o}</option>)}
+          {opc(tiposDe(s.estrutura), s.tipo).map((o) => <option key={o}>{o}</option>)}
         </select>
       </td>
       <td>

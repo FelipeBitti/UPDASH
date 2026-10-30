@@ -3,7 +3,9 @@ import type { LinhaX, SiglaRow } from "./types";
 // ---------------------------------------------------------------- Planilha Mestre
 
 export const CONSTRUTIVOS = ["Estaiada", "Suspensão", "Ancoragem"];
-const ORDEM_PRODUTO = ["LT", "SE", "Telecom", "Poste LT", "Solar", "Gal 3º"];
+export const CONSTRUTIVOS_SOLAR = ["Tracker", "Fixo"];
+const TODOS_CONSTRUTIVOS = [...CONSTRUTIVOS, ...CONSTRUTIVOS_SOLAR];
+const ORDEM_PRODUTO = ["LT", "SE", "Telecom", "Poste LT", "Solar", "Outros", "Gal 3º"];
 
 export type MestreSalva = {
   id: string;
@@ -53,8 +55,8 @@ export function tensaoDe(kva: string): string {
 }
 
 export function construtivoDe(produto: string, tipo: string): string {
-  if (produto !== "LT") return "";
-  return CONSTRUTIVOS.find((c) => semAcento(c) === semAcento(tipo.trim())) ?? "";
+  const lista = produto === "LT" ? CONSTRUTIVOS : produto === "Solar" ? CONSTRUTIVOS_SOLAR : [];
+  return lista.find((c) => semAcento(c) === semAcento(tipo.trim())) ?? "";
 }
 
 // Classifica uma sigla do cadastro na linha da Planilha Mestre (null = ainda sem estrutura)
@@ -102,7 +104,7 @@ export function montarMestre(siglas: SiglaRow[], salvas: MestreSalva[], refChave
       ordemProd(a.produto) - ordemProd(b.produto) ||
       a.produto.localeCompare(b.produto) ||
       numKV(b.tensao) - numKV(a.tensao) ||
-      CONSTRUTIVOS.indexOf(a.construtivo) - CONSTRUTIVOS.indexOf(b.construtivo),
+      TODOS_CONSTRUTIVOS.indexOf(a.construtivo) - TODOS_CONSTRUTIVOS.indexOf(b.construtivo),
   );
 
   // Referência (1 UP): por padrão, média do tempo das linhas LT 500kV
