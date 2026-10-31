@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { LinhaX } from "@/lib/types";
+import type { LinhaX, SiglaRow } from "@/lib/types";
 
 const COR = "#2563eb";
 const f0 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
@@ -25,7 +25,7 @@ function agrupar(linhas: LinhaX[], chave: (l: LinhaX) => string): Agg[] {
   return [...m.entries()].map(([nome, a]) => ({ nome, peso: a.peso, qtd: a.qtd, ordens: a.ordens.size }));
 }
 
-export default function Dashboard({ dados }: { dados: LinhaX[] }) {
+export default function Dashboard({ dados, siglasCad = [] }: { dados: LinhaX[]; siglasCad?: SiglaRow[] }) {
   const [sigla, setSigla] = useState("");
   const [ct, setCt] = useState("");
   const [de, setDe] = useState("");
@@ -68,6 +68,51 @@ export default function Dashboard({ dados }: { dados: LinhaX[] }) {
       .sort((a, b) => b.peso - a.peso);
   }, [f, busca]);
 
+  // Relatório: uma linha por sigla + CD pai + mês, com os dados cadastrados na aba "Siglas e CD pai"
+  async function exportarRelatorio() {
+    const XLSX = await import("xlsx");
+    const cad = new Map(siglasCad.map((s) => [`${s.sigla}|${s.cdPai}`, s]));
+    const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+    const m = new Map<string, { sigla: string; cdPai: string; mes: string; peso: number; qtd: number; ordens: Set<string> }>();
+    for (const l of f) {
+      const mes = l.data ? l.data.slice(0, 7) : "";
+      const k = `${l.sigla}|${l.codigo}|${mes}`;
+      let a = m.get(k);
+      if (!a) m.set(k, (a = { sigla: l.sigla, cdPai: l.codigo, mes, peso: 0, qtd: 0, ordens: new Set() }));
+      a.peso += l.pesoConf;
+      a.qtd += l.qtdBoa;
+      a.ordens.add(l.ordem);
+    }
+    const linhas = [...m.values()]
+      .sort((a, b) => a.sigla.localeCompare(b.sigla) || a.cdPai.localeCompare(b.cdPai) || a.mes.localeCompare(b.mes))
+      .map((a) => {
+        const c = cad.get(`${a.sigla}|${a.cdPai}`);
+        const mesNum = a.mes ? Number(a.mes.slice(5, 7)) : 0;
+        return {
+          Ano: a.mes ? Number(a.mes.slice(0, 4)) : "s/ data",
+          "Mês": mesNum ? mesNum : "",
+          "Nome do mês": mesNum ? MESES[mesNum - 1] : "s/ data",
+          SIGLA: a.sigla,
+          "CD PAI": a.cdPai,
+          Estrutura: c?.estrutura ?? "",
+          KVA: c?.kva ?? "",
+          Circuito: c?.circuito ?? "",
+          TIPO: c?.tipo ?? "",
+          "Observação": c?.observacao ?? "",
+          "Ordens de produção": a.ordens.size,
+          "Peças boas": a.qtd,
+          "Peso confirmado (kg)": Math.round(a.peso * 100) / 100,
+          "Peso confirmado (t)": Math.round(a.peso) / 1000,
+        };
+      });
+    const ws = XLSX.utils.json_to_sheet(linhas);
+    ws["!cols"] = [8, 6, 13, 12, 14, 11, 9, 9, 12, 28, 12, 12, 16, 14].map((wch) => ({ wch }));
+    ws["!autofilter"] = { ref: ws["!ref"] ?? "A1" };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Produção");
+    XLSX.writeFile(wb, `Relatorio-Producao-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
   return (
     <section>
       <div className="filtros">
@@ -88,6 +133,7 @@ export default function Dashboard({ dados }: { dados: LinhaX[] }) {
         {(sigla || ct || de || ate) && (
           <button className="btn" onClick={() => { setSigla(""); setCt(""); setDe(""); setAte(""); }}>Limpar</button>
         )}
+        <button className="btn primario" disabled={f.length === 0} onClick={exportarRelatorio}>Exportar relatório Excel</button>
       </div>
 
       <div className="kpis">
