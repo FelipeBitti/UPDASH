@@ -307,7 +307,7 @@ export default function App() {
                 <a href="#" onClick={(e) => { e.preventDefault(); setAba("pend"); }}>Definir agora</a>
               </div>
             )}
-            <Dashboard dados={dados} />
+            <Dashboard dados={dados} siglasCad={siglas} />
           </>
         ))}
 
