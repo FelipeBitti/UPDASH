@@ -55,7 +55,7 @@ export default function Mestre({ linhas, refTempo, refDescricao, refChave, onRef
   return (
     <section>
       <p className="ajuda">
-        As linhas nascem do cadastro de siglas (produto, tensão e tipo construtivo) e novas combinações entram sozinhas, sem duplicar. Preencha o{" "}
+        As linhas nascem do cadastro de siglas (produto e tensão; LT é filtrada só por kV, sem abrir por Estaiada/Suspensão/Ancoragem) e novas combinações entram sozinhas, sem duplicar. Preencha o{" "}
         <b>tempo de processo</b> e o <b>peso médio</b> de cada estrutura: UP, UP/ton e ton/UP são calculados na hora e alimentam a tela de Produtividade.
         Fórmula: <b>UP = tempo da estrutura ÷ tempo da referência</b>.
       </p>

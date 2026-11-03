@@ -54,8 +54,9 @@ export function tensaoDe(kva: string): string {
   return t ? `${t}kV` : "";
 }
 
+// LT agora é agrupada só por tensão (kV): o tipo construtivo (Estaiada/Suspensão/Ancoragem) não abre mais linhas.
 export function construtivoDe(produto: string, tipo: string): string {
-  const lista = produto === "LT" ? CONSTRUTIVOS : produto === "Solar" ? CONSTRUTIVOS_SOLAR : [];
+  const lista = produto === "Solar" ? CONSTRUTIVOS_SOLAR : [];
   return lista.find((c) => semAcento(c) === semAcento(tipo.trim())) ?? "";
 }
 
@@ -68,7 +69,39 @@ export function chaveDaSigla(s: Pick<SiglaRow, "estrutura" | "kva" | "tipo">): M
 
 const numKV = (t: string) => parseFloat(t.replace(",", ".")) || 0;
 
-export function montarMestre(siglas: SiglaRow[], salvas: MestreSalva[], refChave: string) {
+// Linhas LT antigas (por Estaiada/Suspensão/Ancoragem) viram uma só por tensão: tempo e peso = média dos valores preenchidos.
+function unirLT(salvas: MestreSalva[]): MestreSalva[] {
+  const media = (v: (number | null)[]) => {
+    const n = v.filter((x): x is number => x !== null);
+    return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null;
+  };
+  const grupos = new Map<string, MestreSalva[]>();
+  const saida: MestreSalva[] = [];
+  for (const s of salvas.map((x) => ({ ...x }))) {
+    if (s.produto === "LT" && s.construtivo) {
+      const k = `${s.produto}|${s.tensao}`;
+      grupos.set(k, [...(grupos.get(k) ?? []), s]);
+    } else saida.push(s);
+  }
+  for (const g of grupos.values()) {
+    const existente = saida.find((x) => x.produto === "LT" && x.tensao === g[0].tensao && !x.construtivo);
+    if (existente) {
+      // já existe a linha por kV: ela manda; só completa o que estiver vazio
+      existente.tempoH ??= media(g.map((x) => x.tempoH));
+      existente.pesoMedio ??= media(g.map((x) => x.pesoMedio));
+    } else {
+      saida.push({
+        id: "", produto: "LT", tensao: g[0].tensao, construtivo: "",
+        rotulo: g.find((x) => x.rotulo)?.rotulo ?? "",
+        tempoH: media(g.map((x) => x.tempoH)), pesoMedio: media(g.map((x) => x.pesoMedio)), manual: false,
+      });
+    }
+  }
+  return saida;
+}
+
+export function montarMestre(siglas: SiglaRow[], salvasBrutas: MestreSalva[], refChave: string) {
+  const salvas = unirLT(salvasBrutas);
   const base = new Map<string, MestreChave & { nSiglas: number }>();
   for (const s of siglas) {
     const k = chaveDaSigla(s);
@@ -91,7 +124,7 @@ export function montarMestre(siglas: SiglaRow[], salvas: MestreSalva[], refChave
     return {
       produto: b.produto, tensao: b.tensao, construtivo: b.construtivo, chave,
       rotulo: sv?.rotulo ?? "", tempoH: sv?.tempoH ?? null, pesoMedio: sv?.pesoMedio ?? null,
-      id: sv?.id ?? null, manual: sv?.manual ?? false, nSiglas: b.nSiglas,
+      id: sv?.id || null, manual: sv?.manual ?? false, nSiglas: b.nSiglas,
     };
   });
 
