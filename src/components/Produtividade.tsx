@@ -1,18 +1,26 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, Bar, BarChart, CartesianGrid, ComposedChart, LabelList, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { agrupar, registrosProducao, type GrupoUP, type MestreLinha, type Registro } from "@/lib/mestre";
 import type { LinhaX, SiglaRow } from "@/lib/types";
 
-const COR = "#2563eb";
-const PALETA = ["#2563eb", "#f97316", "#10b981", "#a855f7", "#ef4444", "#eab308", "#06b6d4", "#64748b", "#84cc16", "#ec4899"];
+// Cores iguais às do gráfico de referência (Excel "UP Brasa")
+const C_TON = "#4472C4";
+const C_EQ = "#C00000";
+const C_UP = "#A5A5A5";
+const C_TONUP = "#FFC000";
+const PALETA = ["#4472C4", "#ED7D31", "#70AD47", "#7030A0", "#C00000", "#FFC000", "#00B0F0", "#7F7F7F", "#84cc16", "#ec4899"];
+const MESES = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
 const f0 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
 const f2 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+const f2x = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const f3 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 3 });
 const t0 = (v: unknown) => f0.format(Number(v));
 const t2 = (v: unknown) => f2.format(Number(v));
-const t3 = (v: unknown) => f3.format(Number(v));
+const t2x = (v: unknown) => f2x.format(Number(v));
+const tEixo = (v: unknown) => (Number(v) === 0 ? "-" : f0.format(Number(v)));
 
 type Agrup = "tipoCompleto" | "produto" | "tensao" | "tipoEstrutura" | "sigla";
 const AGRUPAMENTOS: { v: Agrup; t: string }[] = [
@@ -23,6 +31,7 @@ const AGRUPAMENTOS: { v: Agrup; t: string }[] = [
   { v: "sigla", t: "Sigla" },
 ];
 
+type Ponto = GrupoUP & { rotulo: string; tonEq: number | null };
 type Props = { dados: LinhaX[]; siglas: SiglaRow[]; mestre: MestreLinha[]; refDescricao: string; refTempo: number | null; onIrMestre: () => void };
 
 export default function Produtividade({ dados, siglas, mestre, refDescricao, refTempo, onIrMestre }: Props) {
@@ -31,8 +40,15 @@ export default function Produtividade({ dados, siglas, mestre, refDescricao, ref
   const [fTensao, setTensao] = useState("");
   const [fTipo, setTipo] = useState("");
   const [agrup, setAgrup] = useState<Agrup>("tipoCompleto");
+  const [periodo, setPeriodo] = useState<"mes" | "dia">("mes");
 
   const { registros, tonTotal, tonSemClasse } = useMemo(() => registrosProducao(dados, siglas, mestre), [dados, siglas, mestre]);
+
+  // Peso da estrutura padrão (referência de 1 UP): média do peso médio das linhas de referência da Planilha Mestre
+  const pesoPadrao = useMemo(() => {
+    const p = mestre.filter((m) => m.ehRef && (m.pesoMedio ?? 0) > 0).map((m) => m.pesoMedio as number);
+    return p.length ? p.reduce((a, b) => a + b, 0) / p.length : null;
+  }, [mestre]);
 
   const passa = (r: Registro, ignorar?: "produto" | "sigla" | "tensao" | "tipo") =>
     (ignorar === "produto" || !fProduto || r.produto === fProduto) &&
@@ -50,33 +66,74 @@ export default function Produtividade({ dados, siglas, mestre, refDescricao, ref
 
   const f = useMemo(() => registros.filter((r) => passa(r)), [registros, fProduto, fSigla, fTensao, fTipo]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // TON/EQ = UP produzidas × peso da estrutura padrão
+  const comEq = (g: GrupoUP[]): Ponto[] => g.map((x) => ({ ...x, rotulo: x.nome, tonEq: pesoPadrao !== null ? x.up * pesoPadrao : null }));
+
   const total = useMemo(() => agrupar(f, () => "total")[0], [f]);
+  const tonEqTotal = pesoPadrao !== null && total ? total.up * pesoPadrao : null;
+
+  const porGrupo = (chave: (r: Registro) => string, n = 15) =>
+    comEq(agrupar(f, chave).filter((g) => g.up > 0).sort((a, b) => b.up - a.up).slice(0, n));
   const grupos = useMemo(() => agrupar(f, (r) => r[agrup]), [f, agrup]);
-  const porUp = useMemo(() => grupos.filter((g) => g.tonPorUp !== null).sort((a, b) => (b.tonPorUp ?? 0) - (a.tonPorUp ?? 0)).slice(0, 15), [grupos]);
-  const porUpTon = useMemo(() => grupos.filter((g) => g.upPorTon !== null).sort((a, b) => (b.upPorTon ?? 0) - (a.upPorTon ?? 0)).slice(0, 15), [grupos]);
-  const estUp = useMemo(() => grupos.filter((g) => g.up > 0).slice(0, 15), [grupos]);
-  const pizza = useMemo(() => {
-    const g = agrupar(f, (r) => r.tipoCompleto).filter((x) => x.up > 0).sort((a, b) => b.up - a.up);
-    const top = g.slice(0, 9);
-    const resto = g.slice(9).reduce((s, x) => s + x.up, 0);
-    return resto > 0 ? [...top, { ...top[0], nome: "Outros", up: resto }] : top;
-  }, [f]);
+  const gAgrup = useMemo(() => porGrupo((r) => r[agrup], 20), [f, agrup, pesoPadrao]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gProduto = useMemo(() => porGrupo((r) => r.produto), [f, pesoPadrao]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gTensao = useMemo(() => porGrupo((r) => r.tensao), [f, pesoPadrao]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gTipo = useMemo(() => porGrupo((r) => r.tipoEstrutura), [f, pesoPadrao]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const compProduto = useMemo(() => comp(agrupar(f, (r) => r.produto)), [f]);
-  const compTensao = useMemo(() => comp(agrupar(f, (r) => r.tensao)), [f]);
-  const compTipo = useMemo(() => comp(agrupar(f, (r) => r.tipoEstrutura)), [f]);
-
+  // Evolução no tempo (visão principal, formato da imagem de referência)
   const evolucao = useMemo(() => {
-    const meses = new Set(f.map((r) => r.dia.slice(0, 7)));
-    const porMes = meses.size > 1;
-    const g = agrupar(f, (r) => (r.dia ? (porMes ? r.dia.slice(0, 7) : r.dia) : "s/ data")).sort((a, b) => a.nome.localeCompare(b.nome));
-    const rot = (n: string) => (n.length === 10 ? `${n.slice(8, 10)}/${n.slice(5, 7)}` : n.length === 7 ? `${n.slice(5, 7)}/${n.slice(0, 4)}` : n);
-    return { porMes, dados: g.map((x) => ({ ...x, rotulo: rot(x.nome) })) };
-  }, [f]);
+    const chave = (r: Registro) => (r.dia ? (periodo === "mes" ? r.dia.slice(0, 7) : r.dia) : "s/ data");
+    const anos = new Set(f.filter((r) => r.dia).map((r) => r.dia.slice(0, 4)));
+    const rot = (n: string) => {
+      if (n.length === 10) return `${n.slice(8, 10)}/${n.slice(5, 7)}`;
+      if (n.length === 7) {
+        const m = MESES[Number(n.slice(5, 7)) - 1] ?? n.slice(5, 7);
+        return anos.size > 1 ? `${m}/${n.slice(2, 4)}` : m;
+      }
+      return n;
+    };
+    const ord = [...anos].sort();
+    const titulo = ord.length === 0 ? "UP Brasa" : ord.length === 1 ? `UP Brasa ${ord[0]}` : `UP Brasa ${ord[0]}–${ord[ord.length - 1]}`;
+    const g = agrupar(f, chave).sort((a, b) => a.nome.localeCompare(b.nome));
+    const pontos: Ponto[] = comEq(g).map((x) => ({ ...x, rotulo: rot(x.nome) }));
+
+    let aT = 0, aE = 0, aU = 0;
+    const acumulado = pontos.map((p) => {
+      aT += p.ton; aE += p.tonEq ?? 0; aU += p.up;
+      return { rotulo: p.rotulo, ton: aT, tonEq: pesoPadrao !== null ? aE : null, up: aU };
+    });
+
+    const produtos = [...new Set(f.filter((r) => r.up !== null).map((r) => r.produto))];
+    const emp = new Map<string, Record<string, number | string>>();
+    for (const r of f) {
+      if (r.up === null) continue;
+      const k = chave(r);
+      let o = emp.get(k);
+      if (!o) emp.set(k, (o = { nome: k, rotulo: rot(k) }));
+      o[r.produto] = ((o[r.produto] as number) ?? 0) + r.up;
+    }
+    const empilhado = [...emp.values()].sort((a, b) => String(a.nome).localeCompare(String(b.nome)));
+    return { titulo, pontos, acumulado, produtos, empilhado };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f, periodo, pesoPadrao]);
+
+  // Aderência ao padrão: TON/UP do grupo ÷ peso da estrutura padrão (100% = igual à referência)
+  const aderencia = useMemo(
+    () =>
+      pesoPadrao === null
+        ? []
+        : grupos
+            .filter((g) => g.tonPorUp !== null)
+            .map((g) => ({ nome: g.nome, indice: ((g.tonPorUp as number) / pesoPadrao) * 100 }))
+            .sort((a, b) => b.indice - a.indice)
+            .slice(0, 20),
+    [grupos, pesoPadrao],
+  );
 
   const semParametros = useMemo(() => mestre.filter((m) => m.up === null || !m.pesoMedio).length, [mestre]);
   const pctClass = tonTotal > 0 ? ((tonTotal - tonSemClasse) / tonTotal) * 100 : 100;
   const temFiltro = !!(fProduto || fSigla || fTensao || fTipo);
+  const nomeAgrup = AGRUPAMENTOS.find((a) => a.v === agrup)?.t.toLowerCase() ?? "";
 
   return (
     <section>
@@ -90,12 +147,23 @@ export default function Produtividade({ dados, siglas, mestre, refDescricao, ref
             {AGRUPAMENTOS.map((a) => <option key={a.v} value={a.v}>{a.t}</option>)}
           </select>
         </label>
+        <label>Período
+          <select value={periodo} onChange={(e) => setPeriodo(e.target.value as "mes" | "dia")}>
+            <option value="mes">Mensal</option>
+            <option value="dia">Diário</option>
+          </select>
+        </label>
         {temFiltro && <button className="btn" onClick={() => { setProduto(""); setSigla(""); setTensao(""); setTipo(""); }}>Limpar</button>}
       </div>
 
       {!refTempo && (
         <div className="aviso">
           Sem estrutura de referência: informe o tempo de processo da LT 500kV (1 UP) na <a href="#" onClick={(e) => { e.preventDefault(); onIrMestre(); }}>Planilha Mestre</a> para calcular as UP.
+        </div>
+      )}
+      {refTempo && pesoPadrao === null && (
+        <div className="aviso">
+          Sem peso médio na estrutura de referência: informe o peso médio da LT 500kV na <a href="#" onClick={(e) => { e.preventDefault(); onIrMestre(); }}>Planilha Mestre</a> para calcular a TON/EQ.
         </div>
       )}
       {refTempo && semParametros > 0 && (
@@ -111,84 +179,97 @@ export default function Produtividade({ dados, siglas, mestre, refDescricao, ref
       )}
 
       <div className="kpis">
-        <Kpi t="Toneladas produzidas" v={f0.format(total?.ton ?? 0)} />
-        <Kpi t="Estruturas (equivalentes)" v={f0.format(total?.estruturas ?? 0)} />
-        <Kpi t="UP consumidas" v={f0.format(total?.up ?? 0)} />
+        <Kpi t="Toneladas produzidas (TON)" v={f0.format(total?.ton ?? 0)} />
+        <Kpi t="Tonelada equivalente (TON/EQ)" v={tonEqTotal !== null ? f0.format(tonEqTotal) : "—"} />
+        <Kpi t="UP produzidas" v={f2.format(total?.up ?? 0)} />
         <Kpi t="TON/UP" v={total?.tonPorUp != null ? f2.format(total.tonPorUp) : "—"} />
-        <Kpi t="UP/TON" v={total?.upPorTon != null ? f3.format(total.upPorTon) : "—"} />
+        <Kpi t="Peso da estrutura padrão (t)" v={pesoPadrao !== null ? f2.format(pesoPadrao) : "—"} />
         <Kpi t="Peso classificado" v={`${f2.format(pctClass)}%`} />
       </div>
-      <p className="muted peq" style={{ marginTop: -4 }}>Referência: 1 UP = {refDescricao}{refTempo ? ` (${f2.format(refTempo)} h)` : ""}. Estruturas = toneladas produzidas ÷ peso médio da Planilha Mestre.</p>
+      <p className="muted peq" style={{ marginTop: -4 }}>
+        Referência: 1 UP = {refDescricao}{refTempo ? ` (${f2.format(refTempo)} h)` : ""}. TON/EQ = UP produzidas × peso da estrutura padrão{pesoPadrao !== null ? ` (${f2.format(pesoPadrao)} t)` : ""}. TON/UP = toneladas ÷ UP.
+      </p>
 
+      {/* Visão principal: mesmo formato do gráfico de referência */}
+      <Cartao titulo={evolucao.titulo}>
+        <GraficoUP data={evolucao.pontos} altura={420} />
+      </Cartao>
+
+      <Cartao titulo={`UP Brasa por ${nomeAgrup}`}>
+        <GraficoUP data={gAgrup} altura={440} />
+      </Cartao>
+
+      <h3 style={{ margin: "16px 0 8px" }}>Comparativos (TON, TON/EQ, UP e TON/UP)</h3>
       <div className="grade">
-        <Cartao titulo="Peso produzido por UP (TON/UP)">
-          <Horizontal data={porUp} chave="tonPorUp" nome="TON/UP" fmt={t2} />
-        </Cartao>
-        <Cartao titulo="UP/TON">
-          <Horizontal data={porUpTon} chave="upPorTon" nome="UP/TON" fmt={t3} />
-        </Cartao>
+        <Cartao titulo="Por produto"><GraficoUP data={gProduto} altura={380} /></Cartao>
+        <Cartao titulo="Por tensão"><GraficoUP data={gTensao} altura={380} /></Cartao>
+      </div>
+      <Cartao titulo="Por tipo construtivo"><GraficoUP data={gTipo} altura={380} /></Cartao>
 
-        <Cartao titulo="Quantidade de estruturas × UP consumidas">
-          <ResponsiveContainer width="100%" height={Math.max(300, estUp.length * 34)}>
-            <BarChart data={estUp} layout="vertical" margin={{ left: 10, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-              <XAxis type="number" tickFormatter={t0} />
-              <YAxis type="category" dataKey="nome" width={170} tick={{ fontSize: 12 }} />
+      <h3 style={{ margin: "16px 0 8px" }}>Outras visões</h3>
+      <div className="grade">
+        <Cartao titulo={`Acumulado no ${periodo === "mes" ? "ano" : "período"}: TON, TON/EQ e UP`}>
+          <ResponsiveContainer width="100%" height={340}>
+            <ComposedChart data={evolucao.acumulado} margin={{ top: 10, right: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="rotulo" />
+              <YAxis yAxisId="l" tickFormatter={tEixo} />
+              <YAxis yAxisId="r" orientation="right" tickFormatter={t0} />
               <Tooltip formatter={t2} />
               <Legend />
-              <Bar dataKey="estruturas" name="Estruturas (qtd)" fill="#10b981" />
-              <Bar dataKey="up" name="UP consumidas" fill={COR} />
+              <Area yAxisId="l" dataKey="ton" name="TON" stroke={C_TON} fill={C_TON} fillOpacity={0.2} strokeWidth={2} />
+              <Area yAxisId="l" dataKey="tonEq" name="TON/EQ" stroke={C_EQ} fill={C_EQ} fillOpacity={0.15} strokeWidth={2} />
+              <Line yAxisId="r" dataKey="up" name="UP" stroke={C_UP} strokeWidth={3} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </Cartao>
+
+        <Cartao titulo={`UP produzidas por ${periodo === "mes" ? "mês" : "dia"} e produto`}>
+          <ResponsiveContainer width="100%" height={340}>
+            <BarChart data={evolucao.empilhado} margin={{ top: 10, right: 20 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="rotulo" />
+              <YAxis tickFormatter={tEixo} />
+              <Tooltip formatter={t2} />
+              <Legend />
+              {evolucao.produtos.map((p, i) => <Bar key={p} dataKey={p} stackId="up" name={p} fill={PALETA[i % PALETA.length]} />)}
             </BarChart>
           </ResponsiveContainer>
         </Cartao>
+      </div>
 
-        <Cartao titulo="UP consumidas por tipo de estrutura">
-          <ResponsiveContainer width="100%" height={340}>
-            <PieChart>
-              <Pie data={pizza} dataKey="up" nameKey="nome" innerRadius={60} outerRadius={110} paddingAngle={1}>
-                {pizza.map((_, i) => <Cell key={i} fill={PALETA[i % PALETA.length]} />)}
-              </Pie>
-              <Tooltip formatter={t2} />
-              <Legend />
-            </PieChart>
+      <Cartao titulo={`Aderência ao padrão por ${nomeAgrup} (TON/UP ÷ peso da estrutura padrão, %)`}>
+        {aderencia.length === 0 ? (
+          <p className="muted peq">Informe o peso médio da estrutura de referência na Planilha Mestre para ver este gráfico.</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={Math.max(300, aderencia.length * 30)}>
+            <BarChart data={aderencia} layout="vertical" margin={{ left: 10, right: 50 }}>
+              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" tickFormatter={t0} />
+              <YAxis type="category" dataKey="nome" width={190} tick={{ fontSize: 12 }} />
+              <Tooltip formatter={(v) => `${t2(v)}%`} />
+              <ReferenceLine x={100} stroke={C_EQ} strokeDasharray="4 4" label={{ value: "Padrão 100%", position: "top", fontSize: 11, fill: C_EQ }} />
+              <Bar dataKey="indice" name="Aderência (%)" fill={C_TON}>
+                <LabelList dataKey="indice" position="right" formatter={t0} style={{ fontSize: 11, fontWeight: 700 }} />
+              </Bar>
+            </BarChart>
           </ResponsiveContainer>
-        </Cartao>
-      </div>
-
-      <h3 style={{ margin: "16px 0 8px" }}>Comparativo de produtividade (TON/UP)</h3>
-      <div className="grade tres">
-        <Cartao titulo="Por produto"><Colunas data={compProduto} /></Cartao>
-        <Cartao titulo="Por tensão"><Colunas data={compTensao} /></Cartao>
-        <Cartao titulo="Por tipo de estrutura"><Colunas data={compTipo} /></Cartao>
-      </div>
-
-      <Cartao titulo={`Produção e TON/UP por ${evolucao.porMes ? "mês" : "dia"}`}>
-        <ResponsiveContainer width="100%" height={340}>
-          <ComposedChart data={evolucao.dados} margin={{ right: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="rotulo" />
-            <YAxis yAxisId="l" tickFormatter={t0} />
-            <YAxis yAxisId="r" orientation="right" tickFormatter={t2} />
-            <Tooltip formatter={t2} />
-            <Legend />
-            <Bar yAxisId="l" dataKey="ton" name="Toneladas" fill="#60a5fa" />
-            <Line yAxisId="r" dataKey="tonPorUp" name="TON/UP" stroke="#a21caf" strokeWidth={2} dot={false} connectNulls />
-          </ComposedChart>
-        </ResponsiveContainer>
+        )}
       </Cartao>
 
       <div className="cartao">
-        <h3>Resumo por {AGRUPAMENTOS.find((a) => a.v === agrup)?.t.toLowerCase()}</h3>
+        <h3>Resumo por {nomeAgrup}</h3>
         <div className="tabela-wrap">
           <table>
             <thead>
-              <tr><th>Grupo</th><th className="dir">Toneladas</th><th className="dir">Estruturas</th><th className="dir">UP</th><th className="dir">TON/UP</th><th className="dir">UP/TON</th></tr>
+              <tr><th>Grupo</th><th className="dir">TON</th><th className="dir">TON/EQ</th><th className="dir">Estruturas</th><th className="dir">UP</th><th className="dir">TON/UP</th><th className="dir">UP/TON</th></tr>
             </thead>
             <tbody>
               {grupos.slice(0, 200).map((g) => (
                 <tr key={g.nome}>
                   <td>{g.nome}</td>
                   <td className="dir">{f2.format(g.ton)}</td>
+                  <td className="dir">{pesoPadrao !== null && g.up ? f2.format(g.up * pesoPadrao) : "—"}</td>
                   <td className="dir">{g.estruturas ? f2.format(g.estruturas) : "—"}</td>
                   <td className="dir">{g.up ? f2.format(g.up) : "—"}</td>
                   <td className="dir">{g.tonPorUp !== null ? f2.format(g.tonPorUp) : "—"}</td>
@@ -203,7 +284,53 @@ export default function Produtividade({ dados, siglas, mestre, refDescricao, ref
   );
 }
 
-const comp = (g: GrupoUP[]) => g.filter((x) => x.tonPorUp !== null).sort((a, b) => (b.tonPorUp ?? 0) - (a.tonPorUp ?? 0));
+// Rótulo branco, na vertical, dentro da coluna (como no Excel)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rotuloVertical(p: any) {
+  const { x, y, width, height, value } = p;
+  if (value === null || value === undefined || !(Number(height) > 34)) return null;
+  const cx = Number(x) + Number(width) / 2;
+  const cy = Number(y) + Number(height) / 2;
+  return (
+    <text x={cx} y={cy} fill="#fff" fontSize={11} fontWeight={700} textAnchor="middle" dominantBaseline="central" transform={`rotate(-90 ${cx} ${cy})`}>
+      {f0.format(Number(value))}
+    </text>
+  );
+}
+
+// Gráfico no formato da imagem: colunas TON e TON/EQ (eixo esquerdo) + linhas UP e TON/UP (eixo direito)
+function GraficoUP({ data, altura }: { data: Ponto[]; altura: number }) {
+  if (data.length === 0) return <p className="muted peq">Sem dados com UP para os filtros atuais.</p>;
+  const largura = Math.max(560, data.length * 120);
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <div style={{ minWidth: largura }}>
+        <ResponsiveContainer width="100%" height={altura}>
+          <ComposedChart data={data} margin={{ top: 28, right: 16, left: 4, bottom: 4 }} barGap={0} barCategoryGap="28%">
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d9d9d9" />
+            <XAxis dataKey="rotulo" tick={{ fontSize: 12 }} interval={0} />
+            <YAxis yAxisId="l" tickFormatter={tEixo} tick={{ fontSize: 12 }} />
+            <YAxis yAxisId="r" orientation="right" tickFormatter={t2x} tick={{ fontSize: 12 }} />
+            <Tooltip formatter={t2} />
+            <Legend verticalAlign="bottom" />
+            <Bar yAxisId="l" dataKey="ton" name="TON" fill={C_TON} maxBarSize={48} isAnimationActive={false}>
+              <LabelList dataKey="ton" content={rotuloVertical} />
+            </Bar>
+            <Bar yAxisId="l" dataKey="tonEq" name="TON/EQ" fill={C_EQ} maxBarSize={48} isAnimationActive={false}>
+              <LabelList dataKey="tonEq" content={rotuloVertical} />
+            </Bar>
+            <Line yAxisId="r" dataKey="up" name="UP" stroke={C_UP} strokeWidth={3} dot={false} connectNulls isAnimationActive={false}>
+              <LabelList dataKey="up" position="top" formatter={t2x} style={{ fontSize: 11, fontWeight: 700, fill: "#000" }} />
+            </Line>
+            <Line yAxisId="r" dataKey="tonPorUp" name="TON/UP" stroke={C_TONUP} strokeWidth={3} dot={false} connectNulls isAnimationActive={false}>
+              <LabelList dataKey="tonPorUp" position="top" formatter={t2x} style={{ fontSize: 11, fontWeight: 700, fill: "#000" }} />
+            </Line>
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
 function Sel({ t, v, set, ops }: { t: string; v: string; set: (v: string) => void; ops: string[] }) {
   return (
@@ -214,34 +341,6 @@ function Sel({ t, v, set, ops }: { t: string; v: string; set: (v: string) => voi
         {ops.map((o) => <option key={o}>{o}</option>)}
       </select>
     </label>
-  );
-}
-
-function Horizontal({ data, chave, nome, fmt }: { data: GrupoUP[]; chave: "tonPorUp" | "upPorTon"; nome: string; fmt: (v: unknown) => string }) {
-  return (
-    <ResponsiveContainer width="100%" height={Math.max(300, data.length * 30)}>
-      <BarChart data={data} layout="vertical" margin={{ left: 10, right: 30 }}>
-        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-        <XAxis type="number" tickFormatter={fmt} />
-        <YAxis type="category" dataKey="nome" width={170} tick={{ fontSize: 12 }} />
-        <Tooltip formatter={fmt} />
-        <Bar dataKey={chave} name={nome} fill={COR} />
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-function Colunas({ data }: { data: GrupoUP[] }) {
-  return (
-    <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={data} margin={{ right: 10 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="nome" tick={{ fontSize: 12 }} />
-        <YAxis tickFormatter={t0} />
-        <Tooltip formatter={t2} />
-        <Bar dataKey="tonPorUp" name="TON/UP" fill={COR} />
-      </BarChart>
-    </ResponsiveContainer>
   );
 }
 
