@@ -73,3 +73,88 @@ export async function lerPlanilha(file: File): Promise<Linha[]> {
   }
   return out;
 }
+
+// ---------- Leitura de pasta (vários arquivos) ----------
+
+const EXT_OK = /\.(xlsx|xlsm|xls)$/i;
+const arquivoValido = (f: File) => EXT_OK.test(f.name) && !f.name.startsWith("~$");
+
+export type ResumoPasta = {
+  nome: string; // nome da pasta (ou "N arquivos")
+  lidos: string[];
+  falhas: { arquivo: string; motivo: string }[];
+  duplicadas: number; // linhas repetidas entre arquivos, ignoradas
+  linhas: Linha[];
+};
+
+const chaveLinha = (l: Linha) => [l.ordem, l.texto, l.operacao, l.centroTrabalho, l.qtdBoa, l.pesoConf, l.pesoOrdem, l.data].join("|");
+
+// Lê todos os arquivos de planilha da lista (pasta escolhida ou arrastada).
+// Linhas idênticas que aparecem em mais de um arquivo (exports sobrepostos) são contadas uma vez.
+export async function lerPasta(
+  files: File[],
+  onProgresso?: (feito: number, total: number, arquivo: string) => void,
+): Promise<ResumoPasta> {
+  const validos = files
+    .filter(arquivoValido)
+    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { numeric: true }));
+  if (validos.length === 0) throw new Error("Nenhum arquivo .xlsx/.xls encontrado na pasta.");
+
+  const rel = (validos[0] as File & { webkitRelativePath?: string }).webkitRelativePath;
+  const nome = rel && rel.includes("/") ? rel.split("/")[0] : `${validos.length} arquivo${validos.length > 1 ? "s" : ""}`;
+
+  const vistas = new Set<string>();
+  const linhas: Linha[] = [];
+  const lidos: string[] = [];
+  const falhas: { arquivo: string; motivo: string }[] = [];
+  let duplicadas = 0;
+
+  for (let i = 0; i < validos.length; i++) {
+    const f = validos[i];
+    onProgresso?.(i, validos.length, f.name);
+    try {
+      const l = await lerPlanilha(f);
+      const novas = new Set<string>();
+      for (const x of l) {
+        const k = chaveLinha(x);
+        if (vistas.has(k)) { duplicadas++; continue; } // já veio de um arquivo anterior
+        novas.add(k);
+        linhas.push(x);
+      }
+      for (const k of novas) vistas.add(k);
+      lidos.push(f.name);
+    } catch (e) {
+      falhas.push({ arquivo: f.name, motivo: e instanceof Error ? e.message : "Erro ao ler." });
+    }
+  }
+  onProgresso?.(validos.length, validos.length, "");
+  if (lidos.length === 0) throw new Error(`Nenhum arquivo pôde ser lido. ${falhas[0]?.motivo ?? ""}`);
+  return { nome, lidos, falhas, duplicadas, linhas };
+}
+
+// Arquivos de uma pasta arrastada para a tela (percorre subpastas)
+export async function arquivosDoDrop(dt: DataTransfer): Promise<File[]> {
+  type Entry = { isFile: boolean; isDirectory: boolean; file?: (cb: (f: File) => void, err: (e: unknown) => void) => void; createReader?: () => { readEntries: (cb: (e: Entry[]) => void, err: (e: unknown) => void) => void } };
+  const out: File[] = [];
+  const andar = async (en: Entry): Promise<void> => {
+    if (en.isFile && en.file) {
+      const f = await new Promise<File>((res, rej) => en.file!(res, rej));
+      out.push(f);
+    } else if (en.isDirectory && en.createReader) {
+      const rd = en.createReader();
+      for (;;) {
+        const lote = await new Promise<Entry[]>((res, rej) => rd.readEntries(res, rej));
+        if (lote.length === 0) break;
+        for (const x of lote) await andar(x);
+      }
+    }
+  };
+  const itens = [...dt.items];
+  const entradas = itens.map((i) => (i as DataTransferItem & { webkitGetAsEntry?: () => Entry | null }).webkitGetAsEntry?.() ?? null);
+  if (entradas.some((e) => e)) {
+    for (const e of entradas) if (e) await andar(e);
+  } else {
+    out.push(...dt.files);
+  }
+  return out;
+}

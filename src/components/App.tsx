@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { criarExtrator, padraoParaRegra, type Regra } from "@/lib/extract";
-import { lerPlanilha } from "@/lib/parse";
+import { arquivosDoDrop, lerPasta, type ResumoPasta } from "@/lib/parse";
 import type { Linha, LinhaX, SiglaRow } from "@/lib/types";
 import type { SiglaImport } from "@/lib/parseSiglas";
 import { chaveDe, montarMestre, type MestreSalva } from "@/lib/mestre";
@@ -25,6 +25,9 @@ export default function App() {
   const [erroDb, setErroDb] = useState("");
   const [arrastando, setArrastando] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const inputArqRef = useRef<HTMLInputElement>(null);
+  const [resumo, setResumo] = useState<ResumoPasta | null>(null);
+  const [progresso, setProgresso] = useState("");
   const [siglas, setSiglas] = useState<SiglaRow[]>([]);
   const [siglasOk, setSiglasOk] = useState(false);
   const conhecidas = useRef<Set<string>>(new Set());
@@ -181,18 +184,22 @@ export default function App() {
     return j as { criadas: number; atualizadas: number };
   }
 
-  async function abrir(file: File | undefined | null) {
-    if (!file) return;
+  async function abrir(files: File[] | FileList | null | undefined) {
+    const lista = files ? Array.from(files) : [];
+    if (lista.length === 0) return;
     setCarregando(true);
     setErro("");
+    setProgresso("");
     try {
-      const l = await lerPlanilha(file);
-      setLinhas(l);
-      setArquivo(file.name);
+      const r = await lerPasta(lista, (feito, total, nome) => setProgresso(nome ? `Lendo ${feito + 1}/${total}: ${nome}` : ""));
+      setLinhas(r.linhas);
+      setResumo(r);
+      setArquivo(r.nome);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível ler o arquivo.");
+      setErro(e instanceof Error ? e.message : "Não foi possível ler a pasta.");
     } finally {
       setCarregando(false);
+      setProgresso("");
     }
   }
 
@@ -226,11 +233,11 @@ export default function App() {
       className={"drop" + (arrastando ? " on" : "")}
       onDragOver={(e) => { e.preventDefault(); setArrastando(true); }}
       onDragLeave={() => setArrastando(false)}
-      onDrop={(e) => { e.preventDefault(); setArrastando(false); abrir(e.dataTransfer.files?.[0]); }}
+      onDrop={async (e) => { e.preventDefault(); setArrastando(false); abrir(await arquivosDoDrop(e.dataTransfer)); }}
       onClick={() => inputRef.current?.click()}
     >
-      <strong>Arraste a planilha aqui</strong>
-      <span>ou clique para escolher um arquivo .xlsx</span>
+      <strong>{carregando ? progresso || "Lendo arquivos…" : "Arraste a pasta aqui"}</strong>
+      <span>ou clique para escolher a pasta com as planilhas (.xlsx)</span>
     </div>
   );
 
@@ -239,16 +246,28 @@ export default function App() {
       <header className="topo">
         <div>
           <h1>Dashboard de Produção</h1>
-          <p className="sub">{arquivo ? `${arquivo} · ${linhas.length.toLocaleString("pt-BR")} linhas` : "Carregue a planilha de operações para começar"}</p>
+          <p className="sub">{resumo ? `${arquivo} · ${resumo.lidos.length} arquivo${resumo.lidos.length > 1 ? "s" : ""} · ${linhas.length.toLocaleString("pt-BR")} linhas` : "Selecione a pasta com as planilhas de operações para começar"}</p>
         </div>
-        <button className="btn primario" onClick={() => inputRef.current?.click()} disabled={carregando}>
-          {carregando ? "Lendo planilha…" : arquivo ? "Trocar planilha" : "Carregar planilha"}
-        </button>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls" hidden onChange={(e) => abrir(e.target.files?.[0])} />
+        <div className="acoes">
+          <button className="btn primario" onClick={() => inputRef.current?.click()} disabled={carregando}>
+            {carregando ? progresso || "Lendo arquivos…" : arquivo ? "Trocar pasta" : "Selecionar pasta"}
+          </button>
+          <button className="btn" onClick={() => inputArqRef.current?.click()} disabled={carregando} title="Escolher arquivos avulsos">Arquivos…</button>
+        </div>
+        <input ref={inputRef} type="file" hidden multiple onChange={(e) => { abrir(e.target.files); e.target.value = ""; }} {...({ webkitdirectory: "", directory: "" } as Record<string, string>)} />
+        <input ref={inputArqRef} type="file" accept=".xlsx,.xlsm,.xls" multiple hidden onChange={(e) => { abrir(e.target.files); e.target.value = ""; }} />
       </header>
 
       {erroDb && <div className="aviso">Banco de dados indisponível: {erroDb} (a extração automática continua funcionando, mas regras não serão salvas.)</div>}
       {erro && <div className="aviso erro">{erro}</div>}
+      {resumo && resumo.falhas.length > 0 && (
+        <div className="aviso">
+          {resumo.falhas.length} arquivo(s) ignorado(s): {resumo.falhas.map((f) => `${f.arquivo} (${f.motivo})`).join("; ")}
+        </div>
+      )}
+      {resumo && resumo.duplicadas > 0 && (
+        <div className="aviso">{resumo.duplicadas.toLocaleString("pt-BR")} linhas repetidas entre arquivos foram contadas uma única vez.</div>
+      )}
 
       <nav className="abas">
         <button className={aba === "prod" ? "on" : ""} onClick={() => setAba("prod")}>Produtividade (UP)</button>
